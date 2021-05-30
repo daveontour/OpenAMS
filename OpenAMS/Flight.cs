@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json.Linq;
+using NLog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,23 +9,66 @@ using System.Threading.Tasks;
 namespace OpenAMS {
 
     internal class Flight {
+        public static readonly Logger logger = LogManager.GetLogger("consoleLogger");
+        public static readonly Logger arrLogger = LogManager.GetLogger("arrivalLogger");
+        public static readonly Logger depLogger = LogManager.GetLogger("depLogger");
 
-        private readonly string flightIDTemplate = @"<FlightId xmlns:{0}=""http://www.sita.aero/ams6-xml-api-messages"">
-<{0}:FlightKind>{1}</{0}:FlightKind>
-<{0}:AirlineDesignator codeContext=""IATA"">{2}</{0}:AirlineDesignator>
-<{0}:FlightNumber>{3}</{0}:FlightNumber>
-<{0}:ScheduledDate>{4}</{0}:ScheduledDate>
-<{0}:AirportCode codeContext=""IATA"">{5}</{0}:AirportCode>
-</FlightId>";
+        private readonly string topTemplate = @"<amsx-messages:Envelope
+xmlns:amsx-messages=""http://www.sita.aero/ams6-xml-api-messages""
+xmlns:amsx-datatypes=""http://www.sita.aero/ams6-xml-api-datatypes""
+xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance""
+apiVersion=""2.12"">
+<amsx-messages:Content>
+<amsx-messages:FlightCreateRequest>
+<amsx-datatypes:Token>{0}</amsx-datatypes:Token>";
 
-        private readonly string propertyTemplate = @"<{0}:Update propertyName=""{1}"" >{2}</{0}:Update>";
+        private readonly string flightIDTemplate = @"<amsx-messages:FlightId>
+<amsx-datatypes:FlightKind>{1}</amsx-datatypes:FlightKind>
+<amsx-datatypes:AirlineDesignator codeContext=""IATA"">{2}</amsx-datatypes:AirlineDesignator>
+<amsx-datatypes:FlightNumber>{3}</amsx-datatypes:FlightNumber>
+<amsx-datatypes:ScheduledDate>{4}</amsx-datatypes:ScheduledDate>
+<amsx-datatypes:AirportCode codeContext=""IATA"">{5}</amsx-datatypes:AirportCode>
+</amsx-messages:FlightId>
+<amsx-messages:FlightUpdates>
+<amsx-messages:Update propertyName=""ScheduledTime"">{6}</amsx-messages:Update>";
 
-        public Flight(JObject flight, string apt) {
+        private readonly string bottomTemplate = @"</amsx-messages:FlightUpdates>
+</amsx-messages:FlightCreateRequest>
+</amsx-messages:Content>
+</amsx-messages:Envelope>";
+
+        private readonly string propertyTemplate = @"<amsx-messages:Update propertyName=""{1}"" {3}>{2}</amsx-messages:Update>";
+
+        public Flight(JObject flight, string apt, List<Tuple<string, string>> arrivalFields, List<Tuple<string, string>> departureFields, string homeAirportSub) {
             this.flight = flight;
             this.HomeAirport = apt;
+            ArrivalFields = arrivalFields;
+            DepartureFields = departureFields;
+            this.HomeAirportSub = homeAirportSub;
+        }
+
+        public bool IsArrival {
+            get {
+                if (HomeAirport == Airport_Arr) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }
+
+        public bool IsDeparture {
+            get {
+                if (HomeAirport == Airport_Dep) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
         }
 
         public string HomeAirport { get; set; }
+        public string HomeAirportSub { get; set; }
         public JObject flight { get; set; }
         private JToken arr { get { return flight["arrival"]; } }
         private JToken dep { get { return flight["departure"]; } }
@@ -33,7 +77,13 @@ namespace OpenAMS {
         public string ServiceType { get { return flight["serviceType"]?.ToString(); } }
         public string Duration { get { return flight["duration"]?.ToString(); } }
 
-        public string AirLine { get { return flightIdentifier["operatingCarrier"]["iataCode"]?.ToString(); } }
+        public string AirLine {
+            get {
+                string airline = flightIdentifier["operatingCarrier"]["iataCode"]?.ToString();
+                return airline;
+            }
+        }
+
         public string FltNumber { get { return flightIdentifier["operatingCarrier"]["flightNumber"]?.ToString(); } }
         public string ACType { get { return flightIdentifier["aircraft"]?["iataCode"]?.ToString(); } }
         public string ACReg { get { return flightIdentifier["aircraft"]?["registration"]?.ToString(); } }
@@ -56,6 +106,16 @@ namespace OpenAMS {
         public string Gate_Dep { get { return dep["gate"]?.ToString(); } }
         public string Terminal_Dep { get { return dep["terminal"]?.ToString(); } }
         public string StatusText_Dep { get { return dep["statusText"]?.ToString(); } }
+
+        public string Route {
+            get {
+                if (HomeAirport == Airport_Arr) {
+                    return Airport_Dep;
+                } else {
+                    return Airport_Arr;
+                }
+            }
+        }
 
         private string SDO {
             get {
@@ -125,13 +185,24 @@ namespace OpenAMS {
 
         public string FlightIDXML {
             get {
-                if (HomeAirport == Airport_Arr) {
-                    return String.Format(flightIDTemplate, "ams", "Arrival", AirLine, FltNumber, SDO, HomeAirport);
+                if (HomeAirportSub == null || HomeAirportSub == "") {
+                    if (HomeAirport == Airport_Arr) {
+                        return String.Format(flightIDTemplate, "ams", "Arrival", AirLine, FltNumber, SDO, HomeAirport, STO);
+                    } else {
+                        return String.Format(flightIDTemplate, "ams", "Departure", AirLine, FltNumber, SDO, HomeAirport, STO);
+                    }
                 } else {
-                    return String.Format(flightIDTemplate, "ams", "Departure", AirLine, FltNumber, SDO, HomeAirport);
+                    if (HomeAirport == Airport_Arr) {
+                        return String.Format(flightIDTemplate, "ams", "Arrival", AirLine, FltNumber, SDO, HomeAirportSub, STO);
+                    } else {
+                        return String.Format(flightIDTemplate, "ams", "Departure", AirLine, FltNumber, SDO, HomeAirportSub, STO);
+                    }
                 }
             }
         }
+
+        public List<Tuple<string, string>> ArrivalFields { get; }
+        public List<Tuple<string, string>> DepartureFields { get; }
 
         public string GetPropValue(string propName) {
             return this.GetType().GetProperty(propName).GetValue(this, null)?.ToString();
@@ -142,12 +213,38 @@ namespace OpenAMS {
             if (value == null) {
                 return null;
             }
-            return String.Format(this.propertyTemplate, ns, name, GetPropValue(prop));
+            string codeContext = null;
+            if (prop == "Route") {
+                codeContext = @"codeContext=""IATA""";
+            }
+            return String.Format(this.propertyTemplate, ns, name, GetPropValue(prop), codeContext);
         }
 
-        public string GetAMSFlightCreate(List<Tuple<string, string>> fields) {
+        public string GetAMSFlightCreate(string amsToken) {
             StringBuilder sb = new StringBuilder();
 
+            sb.Append(String.Format(topTemplate, amsToken));
+            sb.AppendLine(FlightIDXML);
+
+            if (IsArrival) {
+                foreach (var pair in ArrivalFields) {
+                    string field = GetFieldXML("ams", pair.Item2, pair.Item1);
+                    if (field != null) {
+                        sb.AppendLine(field);
+                    }
+                }
+            }
+
+            if (IsDeparture) {
+                foreach (var pair in DepartureFields) {
+                    string field = GetFieldXML("ams", pair.Item2, pair.Item1);
+                    if (field != null) {
+                        sb.AppendLine(field);
+                    }
+                }
+            }
+
+            sb.AppendLine(bottomTemplate);
             return sb.ToString();
         }
     }

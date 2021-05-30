@@ -1,9 +1,12 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using NLog;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Messaging;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -19,12 +22,47 @@ namespace OpenAMS {
     }
 
     internal class OpenAMSIngest {
+        public static readonly Logger logger = LogManager.GetLogger("consoleLogger");
+        public static readonly Logger arrLogger = LogManager.GetLogger("arrivalLogger");
+        public static readonly Logger depLogger = LogManager.GetLogger("depLogger");
+
         private System.Timers.Timer updateTimer;
         private DateTime lastUpdate;
+        public string HomeAirport { get; set; }
+        public string HomeAirportSub { get; set; }
+        public string InitTemplate { get; set; }
+        public string UpdateTemplate { get; set; }
+        public string AMSToken { get; set; }
+        public string AMSRequestQueue { get; set; }
+        public string FLIFOToken { get; set; }
+        public int UpdateInterval { get; set; }
+
+        public List<Tuple<string, string>> arrivalFields = new List<Tuple<string, string>>();
+        public List<Tuple<string, string>> departureFields = new List<Tuple<string, string>>();
 
         public OpenAMSIngest(string executeFile, string server) {
             ExecuteFile = executeFile;
             Server = server;
+
+            XmlDocument doc = new XmlDocument();
+            doc.Load("widget.config.xml");
+
+            HomeAirport = doc.SelectSingleNode(".//homeAirport").InnerText;
+            HomeAirportSub = doc.SelectSingleNode(".//homeAirportSub")?.InnerText;
+            InitTemplate = doc.SelectSingleNode(".//initURL").InnerText;
+            UpdateTemplate = doc.SelectSingleNode(".//updateURL").InnerText;
+            AMSToken = doc.SelectSingleNode(".//AMSToken").InnerText;
+            FLIFOToken = doc.SelectSingleNode(".//FLIFOToken").InnerText;
+            UpdateInterval = Int32.Parse(doc.SelectSingleNode(".//UpdateInterval").InnerText);
+            AMSRequestQueue = doc.SelectSingleNode(".//AMSRequestQueue")?.InnerText;
+
+            foreach (XmlNode node in doc.SelectNodes(".//departureMapping")) {
+                departureFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
+            }
+
+            foreach (XmlNode node in doc.SelectNodes(".//arrivalMapping")) {
+                arrivalFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
+            }
         }
 
         public string ExecuteFile { get; }
@@ -37,7 +75,7 @@ namespace OpenAMS {
             t.Start();
 
             updateTimer = new Timer {
-                Interval = 6000,
+                Interval = UpdateInterval * 1000,
                 AutoReset = true,
                 Enabled = true
             };
@@ -48,15 +86,14 @@ namespace OpenAMS {
             // ProcessFile(@"C:\Users\dave_\Desktop\input\FRA Arrivals.json");
             // ProcessFile(@"C:\Users\dave_\Desktop\input\FRA Departure.json");
 
-            InitFromFlifo("FRA", "4", "4", "A", "SZpvZxtHHeyo3mwhmsGhMKcZGLtEnRG2");
-            InitFromFlifo("FRA", "4", "4", "D", "SZpvZxtHHeyo3mwhmsGhMKcZGLtEnRG2");
+            InitFromFlifo(HomeAirport, "4", "4", "A", FLIFOToken);
+            InitFromFlifo(HomeAirport, "4", "4", "D", FLIFOToken);
 
             lastUpdate = DateTime.Now;
         }
 
         private void InitFromFlifo(string apt, string pastWindow, string futurWindow, string direction, string token) {
-            string urlTemplate = "https://flifo-qa.api.aero/flifo/flightinfo/v1/flights/airport/{0}/direction/{1}?pastWindow={2}&futureWindow={3}&searchByUTC=true&showCargo=false&groupMarketingCarriers=true&view=full";
-            string url = String.Format(urlTemplate, apt, direction, pastWindow, futurWindow);
+            string url = String.Format(InitTemplate, apt, direction, pastWindow, futurWindow);
 
             RestResponse resp = GetRestURI(url, token).Result;
             if (resp.StatusCode == HttpStatusCode.OK) {
@@ -67,10 +104,10 @@ namespace OpenAMS {
         }
 
         private void CheckUpdateFromFLIFO(object sender, ElapsedEventArgs e) {
-            Console.WriteLine("Updating Arrivals");
-            UpdateFromFLIFO("FRA", "A", "SZpvZxtHHeyo3mwhmsGhMKcZGLtEnRG2");
-            Console.WriteLine("Updating Departures");
-            UpdateFromFLIFO("FRA", "D", "SZpvZxtHHeyo3mwhmsGhMKcZGLtEnRG2");
+            arrLogger.Info("Checking for Arrival Updates");
+            UpdateFromFLIFO(HomeAirport, "A", FLIFOToken);
+            depLogger.Info("Checking for Departure Updates");
+            UpdateFromFLIFO(HomeAirport, "D", FLIFOToken);
 
             lastUpdate = DateTime.Now;
         }
@@ -79,10 +116,10 @@ namespace OpenAMS {
             string to = DateTime.Now.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
             string from = lastUpdate.AddSeconds(-10).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
 
-            string urlTemplate = "https://flifo-qa.api.aero/flifo/flightinfo/v1/flights/updates/airport/{0}?from={2}&to={3}&showCargo=false&direction={1}&view=full";
-            string url = String.Format(urlTemplate, apt, direction, from, to);
+            string url = String.Format(UpdateTemplate, apt, direction, from, to);
 
-            Console.WriteLine(url);
+            logger.Trace(url);
+
             RestResponse resp = GetRestURI(url, token).Result;
             if (resp.StatusCode == HttpStatusCode.OK) {
                 ProcessResponse(resp.Content);
@@ -113,7 +150,7 @@ namespace OpenAMS {
             }
         }
 
-        private static void ProcessResponse(string response) {
+        private void ProcessResponse(string response) {
             JsonReader reader = new JsonTextReader(new StringReader(response));
             reader.DateParseHandling = DateParseHandling.None;
             JObject o = JObject.Load(reader);
@@ -121,26 +158,41 @@ namespace OpenAMS {
             var flightRecords = o["flightRecords"];
 
             if (flightRecords == null) {
-                Console.WriteLine("No Updates");
+                logger.Warn("No Updates");
                 return;
             }
 
             foreach (var flight in flightRecords) {
-                Flight flt = new Flight((JObject)flight, "FRA");
-                Console.WriteLine(FormatXML(flt.FlightIDXML));
+                Flight flt = new Flight((JObject)flight, HomeAirport, arrivalFields, departureFields, HomeAirportSub);
+                string xml = FormatXML(flt.GetAMSFlightCreate(AMSToken));
+                if (flt.IsArrival) {
+                    arrLogger.Info($"Updating Arrival {flt.Info}");
+                    arrLogger.Trace(xml);
+                } else {
+                    depLogger.Info($"Updating Departure  {flt.Info}");
+                    depLogger.Trace(xml);
+                }
+
+                if (AMSRequestQueue != null && xml != null) {
+                    SendToAMS(xml);
+                }
             }
         }
 
-        private static void ProcessFile(string filename) {
-            JsonReader reader = new JsonTextReader(new StringReader(File.ReadAllText(filename)));
-            reader.DateParseHandling = DateParseHandling.None;
-            JObject o = JObject.Load(reader);
-
-            var flightRecords = o["flightRecords"];
-
-            foreach (var flight in flightRecords) {
-                Flight flt = new Flight((JObject)flight, "FRA");
-                Console.WriteLine(FormatXML(flt.FlightIDXML));
+        private void SendToAMS(string xml) {
+            try {
+                using (MessageQueue msgQueue = new MessageQueue(AMSRequestQueue)) {
+                    try {
+                        var body = Encoding.ASCII.GetBytes(xml);
+                        Message myMessage = new Message(body, new ActiveXMessageFormatter());
+                        msgQueue.Send(myMessage);
+                    } catch (Exception ex) {
+                        logger.Error(ex.Message);
+                        logger.Error(ex.StackTrace);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.Error(ex, $"MSMQ Error Sending to {AMSRequestQueue}");
             }
         }
 
