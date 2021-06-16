@@ -14,18 +14,15 @@ namespace OpenAMS {
     internal class Program {
 
         private static void Main(string[] args) {
-            NLog.Logger logger = NLog.LogManager.GetLogger("LoadInjectorClient");
+            NLog.Logger logger = NLog.LogManager.GetLogger("consoleLogger");
 
+            logger.Info("Starting");
             try {
                 var exitCode = HostFactory.Run(x => {
-                    string executeFile = null;
-                    string server = null;
-                    x.AddCommandLineDefinition("execute", f => { executeFile = f; });
-                    x.AddCommandLineDefinition("server", srv => { server = srv; });
                     x.ApplyCommandLine();
                     try {
                         x.Service<OpenAMSIngest>(s => {
-                            s.ConstructUsing(core => new OpenAMSIngest(executeFile, server));
+                            s.ConstructUsing(core => new OpenAMSIngest());
                             s.WhenStarted(core => core.OnStart());
                             s.WhenStopped(core => core.OnStop());
                         });
@@ -36,7 +33,7 @@ namespace OpenAMS {
 
                     x.SetServiceName($"AMSOpenFLIFOIngest");
                     x.SetDisplayName("AMS Open FLIFO Ingestor");
-                    x.SetDescription($"AMS Open FLIFO Ingestor. AMSOPen to AMS");
+                    x.SetDescription($"AMS Open FLIFO Ingestor. AMSOpen to AMS");
                 });
 
                 int exitCodeValue = (int)Convert.ChangeType(exitCode, exitCode.GetTypeCode());

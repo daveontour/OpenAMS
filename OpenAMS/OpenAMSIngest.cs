@@ -10,6 +10,7 @@ using System.Messaging;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using System.Xml;
@@ -39,57 +40,54 @@ namespace OpenAMS {
 
         public List<Tuple<string, string>> arrivalFields = new List<Tuple<string, string>>();
         public List<Tuple<string, string>> departureFields = new List<Tuple<string, string>>();
+        private Thread mainThread;
 
-        public OpenAMSIngest(string executeFile, string server) {
-            ExecuteFile = executeFile;
-            Server = server;
-
-            XmlDocument doc = new XmlDocument();
-            doc.Load("widget.config.xml");
-
-            HomeAirport = doc.SelectSingleNode(".//homeAirport").InnerText;
-            HomeAirportSub = doc.SelectSingleNode(".//homeAirportSub")?.InnerText;
-            InitTemplate = doc.SelectSingleNode(".//initURL").InnerText;
-            UpdateTemplate = doc.SelectSingleNode(".//updateURL").InnerText;
-            AMSToken = doc.SelectSingleNode(".//AMSToken").InnerText;
-            FLIFOToken = doc.SelectSingleNode(".//FLIFOToken").InnerText;
-            UpdateInterval = Int32.Parse(doc.SelectSingleNode(".//UpdateInterval").InnerText);
-            AMSRequestQueue = doc.SelectSingleNode(".//AMSRequestQueue")?.InnerText;
-
-            foreach (XmlNode node in doc.SelectNodes(".//departureMapping")) {
-                departureFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
-            }
-
-            foreach (XmlNode node in doc.SelectNodes(".//arrivalMapping")) {
-                arrivalFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
-            }
+        public OpenAMSIngest() {
         }
 
-        public string ExecuteFile { get; }
-        public string Server { get; }
-
         public void OnStart() {
-            var t = new Task(() => {
-                Init();
-            });
-            t.Start();
-
-            updateTimer = new Timer {
-                Interval = UpdateInterval * 1000,
-                AutoReset = true,
-                Enabled = true
+            mainThread = new Thread(this.Init) {
+                IsBackground = false
             };
-            updateTimer.Elapsed += CheckUpdateFromFLIFO;
+
+            mainThread.Start();
         }
 
         public void Init() {
-            // ProcessFile(@"C:\Users\dave_\Desktop\input\FRA Arrivals.json");
-            // ProcessFile(@"C:\Users\dave_\Desktop\input\FRA Departure.json");
+            try {
+                XmlDocument doc = new XmlDocument();
+                doc.Load("widget.config.xml");
 
-            InitFromFlifo(HomeAirport, "4", "4", "A", FLIFOToken);
-            InitFromFlifo(HomeAirport, "4", "4", "D", FLIFOToken);
+                HomeAirport = doc.SelectSingleNode(".//homeAirport").InnerText;
+                HomeAirportSub = doc.SelectSingleNode(".//homeAirportSub")?.InnerText;
+                InitTemplate = doc.SelectSingleNode(".//initURL").InnerText;
+                UpdateTemplate = doc.SelectSingleNode(".//updateURL").InnerText;
+                AMSToken = doc.SelectSingleNode(".//AMSToken").InnerText;
+                FLIFOToken = doc.SelectSingleNode(".//FLIFOToken").InnerText;
+                UpdateInterval = Int32.Parse(doc.SelectSingleNode(".//UpdateInterval").InnerText);
+                AMSRequestQueue = doc.SelectSingleNode(".//AMSRequestQueue")?.InnerText;
 
-            lastUpdate = DateTime.Now;
+                foreach (XmlNode node in doc.SelectNodes(".//departureMapping")) {
+                    departureFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
+                }
+
+                foreach (XmlNode node in doc.SelectNodes(".//arrivalMapping")) {
+                    arrivalFields.Add(new Tuple<string, string>(node.Attributes["property"].Value, node.Attributes["externalName"].Value));
+                }
+
+                InitFromFlifo(HomeAirport, "4", "24", "A", FLIFOToken);
+                InitFromFlifo(HomeAirport, "4", "24", "D", FLIFOToken);
+
+                updateTimer = new System.Timers.Timer {
+                    Interval = UpdateInterval * 1000,
+                    AutoReset = true,
+                    Enabled = true
+                };
+                updateTimer.Elapsed += CheckUpdateFromFLIFO;
+                lastUpdate = DateTime.Now;
+            } catch (Exception ex) {
+                logger.Error(ex);
+            }
         }
 
         private void InitFromFlifo(string apt, string pastWindow, string futurWindow, string direction, string token) {
@@ -129,6 +127,7 @@ namespace OpenAMS {
         }
 
         public void OnStop() {
+            mainThread.Abort();
         }
 
         public static string FormatXML(string xml) {
