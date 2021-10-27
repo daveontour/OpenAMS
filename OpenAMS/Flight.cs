@@ -6,9 +6,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace OpenAMS {
-
-    internal class Flight {
+namespace OpenAMS
+{
+    internal class Flight
+    {
         public static readonly Logger logger = LogManager.GetLogger("consoleLogger");
         public static readonly Logger arrLogger = LogManager.GetLogger("arrivalLogger");
         public static readonly Logger depLogger = LogManager.GetLogger("depLogger");
@@ -37,9 +38,16 @@ apiVersion=""2.12"">
 </amsx-messages:Content>
 </amsx-messages:Envelope>";
 
+        private readonly string actypeTemplate = @"<amsx-messages:AircraftType>
+	<amsx-messages:AircraftTypeId>
+		<amsx-messages:AircraftTypeCode codeContext=""IATA"">{1}</AircraftTypeCode>
+	</amsx-messages:AircraftTypeId>
+</amsx-messages:AircraftType>";
+
         private readonly string propertyTemplate = @"<amsx-messages:Update propertyName=""{1}"" {3}>{2}</amsx-messages:Update>";
 
-        public Flight(JObject flight, string apt, List<Tuple<string, string>> arrivalFields, List<Tuple<string, string>> departureFields, string homeAirportSub) {
+        public Flight(JObject flight, string apt, List<Tuple<string, string>> arrivalFields, List<Tuple<string, string>> departureFields, string homeAirportSub)
+        {
             this.flight = flight;
             this.HomeAirport = apt;
             ArrivalFields = arrivalFields;
@@ -47,21 +55,31 @@ apiVersion=""2.12"">
             this.HomeAirportSub = homeAirportSub;
         }
 
-        public bool IsArrival {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public bool IsArrival
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return true;
-                } else {
+                }
+                else
+                {
                     return false;
                 }
             }
         }
 
-        public bool IsDeparture {
-            get {
-                if (HomeAirport == Airport_Dep) {
+        public bool IsDeparture
+        {
+            get
+            {
+                if (HomeAirport == Airport_Dep)
+                {
                     return true;
-                } else {
+                }
+                else
+                {
                     return false;
                 }
             }
@@ -77,8 +95,10 @@ apiVersion=""2.12"">
         public string ServiceType { get { return flight["serviceType"]?.ToString(); } }
         public string Duration { get { return flight["duration"]?.ToString(); } }
 
-        public string AirLine {
-            get {
+        public string AirLine
+        {
+            get
+            {
                 string airline = flightIdentifier["operatingCarrier"]["iataCode"]?.ToString();
                 return airline;
             }
@@ -107,94 +127,142 @@ apiVersion=""2.12"">
         public string Terminal_Dep { get { return dep["terminal"]?.ToString(); } }
         public string StatusText_Dep { get { return dep["statusText"]?.ToString(); } }
 
-        public string Route {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string Route
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return Airport_Dep;
-                } else {
+                }
+                else
+                {
                     return Airport_Arr;
                 }
             }
         }
 
-        private string SDO {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        private string SDO
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return OpDateTime_Arr.Value.ToString("yyyy-MM-dd");
-                } else {
+                }
+                else
+                {
                     return OpDateTime_Dep.Value.ToString("yyyy-MM-dd");
                 }
             }
         }
 
-        public string STO {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string STO
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return SCHA;
-                } else {
+                }
+                else
+                {
                     return SCHD;
                 }
             }
         }
 
-        public string Gate {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string Gate
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return Gate_Arr;
-                } else {
+                }
+                else
+                {
                     return Gate_Dep;
                 }
             }
         }
 
-        public string Terminal {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string Terminal
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return Terminal_Arr;
-                } else {
+                }
+                else
+                {
                     return Terminal_Dep;
                 }
             }
         }
 
-        public string StatusText {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string StatusText
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return StatusText_Arr;
-                } else {
+                }
+                else
+                {
                     return StatusText_Dep;
                 }
             }
         }
 
-        public string Carousel {
-            get {
-                if (HomeAirport == Airport_Arr) {
+        public string Carousel
+        {
+            get
+            {
+                if (HomeAirport == Airport_Arr)
+                {
                     return Carousel_Arr;
-                } else {
+                }
+                else
+                {
                     return null;
                 }
             }
         }
 
-        public string Info {
-            get {
+        public string Info
+        {
+            get
+            {
                 return $"{AirLine}{FltNumber} {STO} {SDO} {Airport_Dep}->{Airport_Arr}";
             }
         }
 
-        public string FlightIDXML {
-            get {
-                if (HomeAirportSub == null || HomeAirportSub == "") {
-                    if (HomeAirport == Airport_Arr) {
+        public string FlightIDXML
+        {
+            get
+            {
+                if (HomeAirportSub == null || HomeAirportSub == "")
+                {
+                    if (HomeAirport == Airport_Arr)
+                    {
                         return String.Format(flightIDTemplate, "ams", "Arrival", AirLine, FltNumber, SDO, HomeAirport, STO);
-                    } else {
+                    }
+                    else
+                    {
                         return String.Format(flightIDTemplate, "ams", "Departure", AirLine, FltNumber, SDO, HomeAirport, STO);
                     }
-                } else {
-                    if (HomeAirport == Airport_Arr) {
+                }
+                else
+                {
+                    if (HomeAirport == Airport_Arr)
+                    {
                         return String.Format(flightIDTemplate, "ams", "Arrival", AirLine, FltNumber, SDO, HomeAirportSub, STO);
-                    } else {
+                    }
+                    else
+                    {
                         return String.Format(flightIDTemplate, "ams", "Departure", AirLine, FltNumber, SDO, HomeAirportSub, STO);
                     }
                 }
@@ -204,41 +272,57 @@ apiVersion=""2.12"">
         public List<Tuple<string, string>> ArrivalFields { get; }
         public List<Tuple<string, string>> DepartureFields { get; }
 
-        public string GetPropValue(string propName) {
+        public string GetPropValue(string propName)
+        {
             return this.GetType().GetProperty(propName).GetValue(this, null)?.ToString();
         }
 
-        public string GetFieldXML(string ns, string name, string prop) {
+        public string GetFieldXML(string ns, string name, string prop)
+        {
             string value = GetPropValue(prop);
-            if (value == null) {
+            if (value == null)
+            {
                 return null;
             }
             string codeContext = null;
-            if (prop == "Route") {
+            if (prop == "Route")
+            {
                 codeContext = @"codeContext=""IATA""";
             }
             return String.Format(this.propertyTemplate, ns, name, GetPropValue(prop), codeContext);
         }
 
-        public string GetAMSFlightCreate(string amsToken) {
+        public string GetAMSFlightCreate(string amsToken)
+        {
             StringBuilder sb = new StringBuilder();
 
             sb.Append(String.Format(topTemplate, amsToken));
             sb.AppendLine(FlightIDXML);
 
-            if (IsArrival) {
-                foreach (var pair in ArrivalFields) {
+            if (ACType != null)
+            {
+                sb.AppendLine(String.Format(actypeTemplate, ACType));
+            }
+
+            if (IsArrival)
+            {
+                foreach (var pair in ArrivalFields)
+                {
                     string field = GetFieldXML("ams", pair.Item2, pair.Item1);
-                    if (field != null) {
+                    if (field != null)
+                    {
                         sb.AppendLine(field);
                     }
                 }
             }
 
-            if (IsDeparture) {
-                foreach (var pair in DepartureFields) {
+            if (IsDeparture)
+            {
+                foreach (var pair in DepartureFields)
+                {
                     string field = GetFieldXML("ams", pair.Item2, pair.Item1);
-                    if (field != null) {
+                    if (field != null)
+                    {
                         sb.AppendLine(field);
                     }
                 }
